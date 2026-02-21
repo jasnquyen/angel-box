@@ -32,6 +32,9 @@ class Settings:
 
     save_frames: bool = _bool("SAVE_FRAMES", True)
     evidence_dir: str = os.getenv("EVIDENCE_DIR", "./data/evidence")
+    save_clips: bool = _bool("SAVE_CLIPS", True)
+    clips_dir: str = os.getenv("CLIPS_DIR", "./data/clips")
+    max_clip_size_bytes: int = int(os.getenv("MAX_CLIP_SIZE_BYTES", "50000000"))
 
     enable_gemini: bool = _bool("ENABLE_GEMINI", False)
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
