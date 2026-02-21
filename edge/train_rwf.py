@@ -43,6 +43,8 @@ def parse_args():
     p.add_argument("--learning-rate", type=float, default=0.05)
     p.add_argument("--max-clips", type=int, default=None,
                    help="Limit clips per split (for quick testing)")
+    p.add_argument("--batch-size", type=int, default=16,
+                   help="YOLO batch size for GPU inference (default: 16)")
     return p.parse_args()
 
 
@@ -62,11 +64,11 @@ def init_models():
 # PER-CLIP PIPELINE
 # ============================================================
 
-def process_clip(path, label, yolo, landmarker, sample_rate):
+def process_clip(path, label, yolo, landmarker, sample_rate, batch_size=16):
     """Process a single video clip, replicating main.py's per-frame pipeline.
 
-    Processes ALL frames to maintain velocity/acceleration continuity,
-    but only collects feature vectors every sample_rate frames.
+    Pre-reads all frames, runs YOLO in batches for GPU efficiency, then
+    processes MediaPipe/tracker/scorer sequentially per frame.
 
     Returns list of (26-dim feature_vector, label) tuples.
     """
@@ -75,23 +77,35 @@ def process_clip(path, label, yolo, landmarker, sample_rate):
         print(f"  WARNING: cannot open {path}")
         return []
 
-    tracker = PersonTracker()
-    scorer = ThreatScorer()
-    samples = []
-    frame_idx = 0
-
+    # 1. Pre-read all frames
+    frames = []
     while True:
         ret, frame = cap.read()
         if not ret:
             break
+        frames.append(frame)
+    cap.release()
 
+    if not frames:
+        return []
+
+    # 2. Batch YOLO inference
+    all_yolo_results = []
+    for i in range(0, len(frames), batch_size):
+        chunk = frames[i : i + batch_size]
+        batch_results = yolo(chunk, classes=[0], conf=0.5, verbose=False)
+        all_yolo_results.extend(batch_results)
+
+    # 3. Sequential per-frame post-processing
+    tracker = PersonTracker()
+    scorer = ThreatScorer()
+    samples = []
+
+    for frame_idx, (frame, yolo_result) in enumerate(zip(frames, all_yolo_results)):
         scorer.frame_count += 1
-
-        # 1. YOLO person detection
-        results = yolo(frame, classes=[0], conf=0.5, verbose=False)
         people = []
 
-        for box in results[0].boxes:
+        for box in yolo_result.boxes:
             bbox = list(map(int, box.xyxy[0]))
             x1, y1, x2, y2 = bbox
 
@@ -99,7 +113,7 @@ def process_clip(path, label, yolo, landmarker, sample_rate):
             if person_crop.size == 0:
                 continue
 
-            # 2. MediaPipe pose estimation
+            # MediaPipe pose estimation
             rgb_crop = cv2.cvtColor(person_crop, cv2.COLOR_BGR2RGB)
             mp_image = mp_lib.Image(image_format=mp_lib.ImageFormat.SRGB, data=rgb_crop)
             pose_results = landmarker.detect(mp_image)
@@ -111,18 +125,18 @@ def process_clip(path, label, yolo, landmarker, sample_rate):
                 landmarks = pose_results.pose_landmarks[0]
                 features = extract_pose_features(landmarks)
 
-            # 3. Track
+            # Track
             person_id = tracker.get_person_id(bbox)
             tracker.update(person_id, bbox, landmarks)
             people.append((person_id, features, bbox))
 
-        # 4. Score all pairs (every frame for state continuity)
+        # Score all pairs (every frame for state continuity)
         is_sample_frame = (frame_idx % sample_rate == 0)
 
         for a, b in combinations(people, 2):
             scorer.score_pair(a, b, tracker)
 
-            # 5. Collect feature vectors on sample frames only
+            # Collect feature vectors on sample frames only
             if is_sample_frame and scorer.last_pair_data is not None:
                 _, feat_a, bbox_a = a
                 _, feat_b, bbox_b = b
@@ -135,9 +149,6 @@ def process_clip(path, label, yolo, landmarker, sample_rate):
                     )
                     samples.append((fv, label))
 
-        frame_idx += 1
-
-    cap.release()
     return samples
 
 
@@ -145,7 +156,7 @@ def process_clip(path, label, yolo, landmarker, sample_rate):
 # DATASET EXTRACTION
 # ============================================================
 
-def extract_dataset(root, yolo, landmarker, sample_rate, max_clips):
+def extract_dataset(root, yolo, landmarker, sample_rate, max_clips, batch_size=16):
     """Walk {train,val}/{Fight,NonFight}/*.avi and extract feature vectors.
 
     Returns (train_X, train_y), (val_X, val_y) as numpy arrays.
@@ -173,7 +184,7 @@ def extract_dataset(root, yolo, landmarker, sample_rate, max_clips):
 
                 clip_path = os.path.join(class_dir, fname)
                 t0 = time.time()
-                clip_samples = process_clip(clip_path, label, yolo, landmarker, sample_rate)
+                clip_samples = process_clip(clip_path, label, yolo, landmarker, sample_rate, batch_size)
                 elapsed = time.time() - t0
                 all_samples.extend(clip_samples)
                 clip_count += 1
@@ -286,9 +297,11 @@ def main():
         yolo, landmarker = init_models()
 
         print(f"\nExtracting features (sample_rate={args.sample_rate}"
+              f", batch_size={args.batch_size}"
               f"{f', max_clips={args.max_clips}' if args.max_clips else ''})...")
         (train_X, train_y), (val_X, val_y) = extract_dataset(
-            args.dataset, yolo, landmarker, args.sample_rate, args.max_clips)
+            args.dataset, yolo, landmarker, args.sample_rate, args.max_clips,
+            args.batch_size)
 
         if args.features_cache:
             save_features(args.features_cache, train_X, train_y, val_X, val_y)
