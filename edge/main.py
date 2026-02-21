@@ -9,6 +9,7 @@ from collections import defaultdict, deque
 from itertools import combinations
 import urllib.request
 import os
+from classifier import build_pair_feature_vector
 
 
 
@@ -162,6 +163,7 @@ class ThreatScorer:
         self.score_window = defaultdict(lambda: deque(maxlen=3))  # median filter window
         self.strike_events = defaultdict(list)
         self.frame_count = 0
+        self.last_pair_data = None
 
     def _to_frame_space(self, norm_pos, bbox):
         """Convert normalized-within-crop coordinates to frame-space pixels."""
@@ -413,6 +415,7 @@ class ThreatScorer:
         # Closing distance, body charging
         # ============================================================
         supplementary = 0.0
+        closing_rate = 0.0
 
         track_a = tracker.tracks[id_a]
         track_b = tracker.tracks[id_b]
@@ -448,6 +451,12 @@ class ThreatScorer:
                   f"raw:{raw_score:.2f} smooth:{final_score:.2f} | "
                   f"dir:{directionality:.2f} nspd:{norm_directed:.2f} strike:{strike_score:.2f}")
 
+        self.last_pair_data = {
+            "arm_a": arm_a, "arm_b": arm_b,
+            "vel_a": vel_a, "vel_b": vel_b,
+            "closing_rate": closing_rate,
+        }
+
         return final_score, reasons
 
     def score_solo(self, person_id, features, tracker):
@@ -481,6 +490,7 @@ scorer = ThreatScorer()
 frame_buffer = deque(maxlen=450)  # 30 sec at 15fps
 
 cap = cv2.VideoCapture(0)
+last_feature_vec = None
 
 while True:
     ret, frame = cap.read()
@@ -550,6 +560,19 @@ while True:
         if pair_score > max_threat:
             max_threat = pair_score
             threat_reasons = reasons
+
+        if scorer.last_pair_data is not None and a[1] is not None and b[1] is not None:
+            id_a, feat_a, bbox_a = a
+            id_b, feat_b, bbox_b = b
+            d = scorer.last_pair_data
+            fv = build_pair_feature_vector(
+                feat_a, feat_b, bbox_a, bbox_b,
+                d["arm_a"], d["arm_b"], d["vel_a"], d["vel_b"],
+                d["closing_rate"],
+            )
+            last_feature_vec = fv
+            print(f"  FV dist:{fv[0]:.2f} dir_a:{fv[21]:.2f} dir_b:{fv[22]:.2f} "
+                  f"raw_a:{fv[13]:.1f} raw_b:{fv[14]:.1f} close:{fv[25]:.1f}")
 
     for pid, feat, bbox in people:
         solo_score, reasons = scorer.score_solo(pid, feat, tracker)
