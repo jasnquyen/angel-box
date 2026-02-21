@@ -36,7 +36,8 @@ def _gemini_stub(payload: DetectionIn) -> str | None:
     if not settings.enable_gemini:
         return None
     return (
-        f"Potential {payload.label} detected on {payload.trail_id}. "
+        f"Potential {payload.label} detected near "
+        f"{payload.latitude:.5f}, {payload.longitude:.5f}. "
         f"Threat score {payload.threat_score:.2f}."
     )
 
@@ -52,7 +53,7 @@ def process_detection(
 
     incident = crud.find_recent_open_incident(
         db=db,
-        trail_id=payload.trail_id,
+        device_id=payload.device_id,
         label=payload.label,
         debounce_seconds=settings.incident_debounce_seconds,
     )

@@ -1,3 +1,5 @@
+#Database layer models for DetectionEvent, Incident, and Alert.
+#Defines SQLAlchemy ORM models and relationships for core data entities.
 from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
@@ -10,12 +12,13 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class DetectionEvent(Base):
+class DetectionEvent(Base): #Stores raw dection from Jetson
     __tablename__ = "detection_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     device_id: Mapped[str] = mapped_column(String(128), index=True)
-    trail_id: Mapped[str] = mapped_column(String(128), index=True)
+    latitude: Mapped[float] = mapped_column(Float, index=True)
+    longitude: Mapped[float] = mapped_column(Float, index=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     label: Mapped[str] = mapped_column(String(128), index=True)
     confidence: Mapped[float] = mapped_column(Float)
@@ -28,7 +31,9 @@ class Incident(Base):
     __tablename__ = "incidents"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    trail_id: Mapped[str] = mapped_column(String(128), index=True)
+    device_id: Mapped[str] = mapped_column(String(128), index=True)
+    latitude: Mapped[float] = mapped_column(Float, index=True)
+    longitude: Mapped[float] = mapped_column(Float, index=True)
     label: Mapped[str] = mapped_column(String(128), index=True)
     status: Mapped[str] = mapped_column(String(32), default="open", index=True)
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

@@ -12,7 +12,8 @@ def create_detection_event(
 ) -> models.DetectionEvent:
     event = models.DetectionEvent(
         device_id=payload.device_id,
-        trail_id=payload.trail_id,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
         timestamp=payload.timestamp,
         label=payload.label,
         confidence=payload.confidence,
@@ -25,13 +26,13 @@ def create_detection_event(
 
 
 def find_recent_open_incident(
-    db: Session, trail_id: str, label: str, debounce_seconds: int
+    db: Session, device_id: str, label: str, debounce_seconds: int
 ) -> models.Incident | None:
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=debounce_seconds)
     stmt = (
         select(models.Incident)
         .where(
-            models.Incident.trail_id == trail_id,
+            models.Incident.device_id == device_id,
             models.Incident.label == label,
             models.Incident.status == "open",
             models.Incident.last_seen >= cutoff,
@@ -46,7 +47,9 @@ def create_incident(
     db: Session, payload: DetectionIn, frame_url: str | None
 ) -> models.Incident:
     incident = models.Incident(
-        trail_id=payload.trail_id,
+        device_id=payload.device_id,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
         label=payload.label,
         status="open",
         first_seen=payload.timestamp,
@@ -65,6 +68,8 @@ def update_incident(
     incident: models.Incident, payload: DetectionIn, frame_url: str | None
 ) -> models.Incident:
     incident.last_seen = payload.timestamp
+    incident.latitude = payload.latitude
+    incident.longitude = payload.longitude
     incident.event_count += 1
     incident.max_confidence = max(incident.max_confidence, payload.confidence)
     incident.max_threat_score = max(incident.max_threat_score, payload.threat_score)
