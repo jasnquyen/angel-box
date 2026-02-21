@@ -1,3 +1,7 @@
 .idea*
 
 edge/venv*
+
+dashboard/node_modules*
+
+angelboard/node_modules*
