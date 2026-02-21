@@ -13,6 +13,9 @@ from classifier import build_pair_feature_vector, ThreatClassifier
 from buffer import RollingBuffer
 from clip_buffer import PreEventBuffer
 from clip_extractor import ClipExtractor
+from streamer import StreamerBridge
+from schema import build_detection_message, build_heartbeat_message
+import time
 
 
 
@@ -504,6 +507,11 @@ if __name__ == "__main__":
     pre_buffer = PreEventBuffer(buffer_seconds=30, fps=15)
     clip_extractor = ClipExtractor(fps=15)
 
+    server_url = os.environ.get("EDGE_WS_URL", "ws://localhost:8000/ws/edge")
+    streamer = StreamerBridge(server_url)
+    streamer.connect()
+    last_heartbeat = time.time()
+
     cap = cv2.VideoCapture(0)
     last_feature_vec = None
     classifier = ThreatClassifier()
@@ -606,17 +614,21 @@ if __name__ == "__main__":
                 max_threat = solo_score
                 threat_reasons = reasons
 
-        # --- clip pipeline ---
-        threat_active = max_threat >= 0.75
-        clip_event = clip_extractor.on_frame(frame, threat_active)
-        if clip_event is not None:
-            if clip_event["event"] == "started":
-                clip_extractor.write_pre_event(pre_buffer.get_frames())
-                print("CLIP STARTED")
-            elif clip_event["event"] == "completed":
-                print(f"CLIP SAVED: {clip_event['clip_path']}")
+        # --- build people_data for schema ---
+        people_data = []
+        for pid, feat, bbox in people:
+            arm_vel = 0.0
+            if pid in scorer.arm_velocity_history and scorer.arm_velocity_history[pid]:
+                arm_vel = scorer.arm_velocity_history[pid][-1]
+            people_data.append({
+                "person_id": pid,
+                "bbox": bbox,
+                "is_horizontal": feat["is_horizontal"] if feat else False,
+                "arm_velocity": arm_vel,
+                "body_velocity": tracker.get_velocity(pid),
+            })
 
-        # --- display ---
+        # --- threat level ---
         if max_threat >= 0.75:
             level, color = "HIGH", (0, 0, 255)
         elif max_threat >= 0.5:
@@ -626,6 +638,46 @@ if __name__ == "__main__":
         else:
             level, color = "NONE", (0, 255, 0)
 
+        # --- clip pipeline ---
+        threat_active = max_threat >= 0.75
+        clip_event = clip_extractor.on_frame(frame, threat_active)
+        if clip_event is not None:
+            if clip_event["event"] == "started":
+                clip_extractor.write_pre_event(pre_buffer.get_frames())
+                print("CLIP STARTED")
+            elif clip_event["event"] == "completed":
+                print(f"CLIP SAVED: {clip_event['clip_path']}")
+                streamer.send_clip(clip_event["clip_path"])
+
+        # --- send detection message ---
+        detection_msg = build_detection_message(
+            frame=frame,
+            people_data=people_data,
+            max_threat=max_threat,
+            threat_level=level,
+            threat_reasons=threat_reasons,
+            clip_event=clip_event,
+            mode=active_mode.lower(),
+        )
+        streamer.send(detection_msg)
+
+        # --- heartbeat ---
+        if time.time() - last_heartbeat > 30:
+            streamer.send(build_heartbeat_message())
+            last_heartbeat = time.time()
+
+        # --- handle inbox messages ---
+        for msg in streamer.get_inbox():
+            if msg["type"] == "feedback" and last_feature_vec is not None:
+                classifier.add_sample(last_feature_vec, msg["label"])
+                print(f"FEEDBACK: label={msg['label']}")
+            elif msg["type"] == "retrain":
+                classifier.retrain()
+                print("RETRAIN triggered by backend")
+            elif msg["type"] == "config":
+                print(f"CONFIG update: {msg}")
+
+        # --- display ---
         cv2.putText(frame, f"Threat: {level} ({max_threat:.2f})",
                     (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
 
@@ -653,4 +705,5 @@ if __name__ == "__main__":
     cap.release()
     rolling_buffer.release()
     clip_extractor.finalize()
+    streamer.close()
     cv2.destroyAllWindows()
