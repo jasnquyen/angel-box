@@ -9,7 +9,10 @@ from collections import defaultdict, deque
 from itertools import combinations
 import urllib.request
 import os
-from classifier import build_pair_feature_vector
+from classifier import build_pair_feature_vector, ThreatClassifier
+from buffer import RollingBuffer
+from clip_buffer import PreEventBuffer
+from clip_extractor import ClipExtractor
 
 
 
@@ -20,12 +23,6 @@ if not os.path.exists(MODEL_PATH):
         "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task",
         MODEL_PATH
     )
-
-yolo = YOLO("yolov8n.pt")
-
-base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
-options = vision.PoseLandmarkerOptions(base_options=base_options, num_poses=1)
-landmarker = vision.PoseLandmarker.create_from_options(options)
 
 POSE_CONNECTIONS = [
     (0, 1), (1, 2), (2, 3), (3, 7),
@@ -459,16 +456,23 @@ class ThreatScorer:
 
         return final_score, reasons
 
-    def score_solo(self, person_id, features, tracker):
+    def score_solo(self, person_id, features, bbox, tracker):
         score = 0.0
         reasons = []
 
         if features is None:
             return 0.0, []
 
-        if features["is_horizontal"]:
+        bbox_w = bbox[2] - bbox[0]
+        bbox_h = bbox[3] - bbox[1]
+        bbox_ratio = bbox_w / (bbox_h + 1e-6)
+        is_lying = features["is_horizontal"] or bbox_ratio > 1.2
+
+        print(f"  SOLO ID:{person_id} torso_angle:{features['torso_angle']:.2f} bbox_ratio:{bbox_ratio:.2f} is_lying:{is_lying}")
+
+        if is_lying:
             score += 0.4
-            reasons.append(f"person horizontal (angle: {features['torso_angle']:.2f})")
+            reasons.append(f"person horizontal (angle: {features['torso_angle']:.2f} bbox_ratio: {bbox_ratio:.2f})")
 
             track = tracker.tracks[person_id]
             if len(track) > 15:
@@ -485,121 +489,168 @@ class ThreatScorer:
 
         return min(score, 1.0), reasons
 
-tracker = PersonTracker()
-scorer = ThreatScorer()
-frame_buffer = deque(maxlen=450)  # 30 sec at 15fps
+if __name__ == "__main__":
+    yolo = YOLO("yolov8n.pt")
 
-cap = cv2.VideoCapture(0)
-last_feature_vec = None
+    base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
+    options = vision.PoseLandmarkerOptions(base_options=base_options, num_poses=1)
+    landmarker = vision.PoseLandmarker.create_from_options(options)
 
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+    tracker = PersonTracker()
+    scorer = ThreatScorer()
+    frame_buffer = deque(maxlen=450)  # 30 sec at 15fps
 
-    frame_buffer.append(frame.copy())
-    scorer.frame_count += 1
+    rolling_buffer = RollingBuffer(fps=15)
+    pre_buffer = PreEventBuffer(buffer_seconds=30, fps=15)
+    clip_extractor = ClipExtractor(fps=15)
 
-    results = yolo(frame, classes=[0], conf=0.5)
+    cap = cv2.VideoCapture(0)
+    last_feature_vec = None
+    classifier = ThreatClassifier()
 
-    people = []
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-    for box in results[0].boxes:
-        bbox = list(map(int, box.xyxy[0]))
-        x1, y1, x2, y2 = bbox
+        frame_buffer.append(frame.copy())
+        rolling_buffer.write_frame(frame)
+        pre_buffer.add_frame(frame)
+        scorer.frame_count += 1
 
-        person_crop = frame[y1:y2, x1:x2]
-        if person_crop.size == 0:
-            continue
+        results = yolo(frame, classes=[0], conf=0.5, verbose=False)
 
-        # run pose estimation
-        rgb_crop = cv2.cvtColor(person_crop, cv2.COLOR_BGR2RGB)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_crop)
-        pose_results = landmarker.detect(mp_image)
+        people = []
 
-        landmarks = None
-        features = None
+        for box in results[0].boxes:
+            bbox = list(map(int, box.xyxy[0]))
+            x1, y1, x2, y2 = bbox
 
-        if pose_results.pose_landmarks:
-            landmarks = pose_results.pose_landmarks[0]
-            features = extract_pose_features(landmarks)
+            person_crop = frame[y1:y2, x1:x2]
+            if person_crop.size == 0:
+                continue
 
+            # run pose estimation
+            rgb_crop = cv2.cvtColor(person_crop, cv2.COLOR_BGR2RGB)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_crop)
+            pose_results = landmarker.detect(mp_image)
 
-            # draw skeleton on crop
-            h, w = person_crop.shape[:2]
-            points = []
-            for lm in landmarks:
-                px, py = int(lm.x * w), int(lm.y * h)
-                points.append((px, py))
-                cv2.circle(person_crop, (px, py), 3, (0, 255, 0), -1)
+            landmarks = None
+            features = None
 
-            for start, end in POSE_CONNECTIONS:
-                if start < len(points) and end < len(points):
-                    cv2.line(person_crop, points[start], points[end], (0, 255, 0), 2)
+            if pose_results.pose_landmarks:
+                landmarks = pose_results.pose_landmarks[0]
+                features = extract_pose_features(landmarks)
 
-        person_id = tracker.get_person_id(bbox)
-        tracker.update(person_id, bbox, landmarks)
-        people.append((person_id, features, bbox))
+                # draw skeleton on crop
+                h, w = person_crop.shape[:2]
+                points = []
+                for lm in landmarks:
+                    px, py = int(lm.x * w), int(lm.y * h)
+                    points.append((px, py))
+                    cv2.circle(person_crop, (px, py), 3, (0, 255, 0), -1)
 
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(frame, f"ID:{person_id}", (x1, y1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                for start, end in POSE_CONNECTIONS:
+                    if start < len(points) and end < len(points):
+                        cv2.line(person_crop, points[start], points[end], (0, 255, 0), 2)
 
-        # TODO: remove later
-        if features:
-            print(
-                f"ID:{person_id} torso_angle:{features['torso_angle']:.2f} horizontal:{features['is_horizontal']} arms_L:{features['left_arm_raised']} arms_R:{features['right_arm_raised']}")
+            person_id = tracker.get_person_id(bbox)
+            tracker.update(person_id, bbox, landmarks)
+            people.append((person_id, features, bbox))
 
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(frame, f"ID:{person_id}", (x1, y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-    # --- threat scoring ---
-    max_threat = 0.0
-    threat_reasons = []
+            # TODO: remove later
+            if features:
+                print(
+                    f"ID:{person_id} torso_angle:{features['torso_angle']:.2f} horizontal:{features['is_horizontal']} arms_L:{features['left_arm_raised']} arms_R:{features['right_arm_raised']}")
 
-    for a, b in combinations(people, 2):
-        pair_score, reasons = scorer.score_pair(a, b, tracker)
-        if pair_score > max_threat:
-            max_threat = pair_score
-            threat_reasons = reasons
+        # --- threat scoring ---
+        max_threat = 0.0
+        threat_reasons = []
+        active_mode = "Heuristic"
 
-        if scorer.last_pair_data is not None and a[1] is not None and b[1] is not None:
-            id_a, feat_a, bbox_a = a
-            id_b, feat_b, bbox_b = b
-            d = scorer.last_pair_data
-            fv = build_pair_feature_vector(
-                feat_a, feat_b, bbox_a, bbox_b,
-                d["arm_a"], d["arm_b"], d["vel_a"], d["vel_b"],
-                d["closing_rate"],
-            )
-            last_feature_vec = fv
-            print(f"  FV dist:{fv[0]:.2f} dir_a:{fv[21]:.2f} dir_b:{fv[22]:.2f} "
-                  f"raw_a:{fv[13]:.1f} raw_b:{fv[14]:.1f} close:{fv[25]:.1f}")
+        for a, b in combinations(people, 2):
+            pair_score, reasons = scorer.score_pair(a, b, tracker)
 
-    for pid, feat, bbox in people:
-        solo_score, reasons = scorer.score_solo(pid, feat, tracker)
-        if solo_score > max_threat:
-            max_threat = solo_score
-            threat_reasons = reasons
+            if scorer.last_pair_data is not None and a[1] is not None and b[1] is not None:
+                id_a, feat_a, bbox_a = a
+                id_b, feat_b, bbox_b = b
+                d = scorer.last_pair_data
+                fv = build_pair_feature_vector(
+                    feat_a, feat_b, bbox_a, bbox_b,
+                    d["arm_a"], d["arm_b"], d["vel_a"], d["vel_b"],
+                    d["closing_rate"],
+                )
+                last_feature_vec = fv
+                print(f"  FV dist:{fv[0]:.2f} dir_a:{fv[21]:.2f} dir_b:{fv[22]:.2f} "
+                      f"raw_a:{fv[13]:.1f} raw_b:{fv[14]:.1f} close:{fv[25]:.1f}")
 
-    # --- display ---
-    if max_threat >= 0.75:
-        level, color = "HIGH", (0, 0, 255)
-    elif max_threat >= 0.5:
-        level, color = "MEDIUM", (0, 165, 255)
-    elif max_threat >= 0.3:
-        level, color = "LOW", (0, 255, 255)
-    else:
-        level, color = "NONE", (0, 255, 0)
+                ml_score = classifier.predict(fv)
+                if ml_score is not None:
+                    pair_score = ml_score
+                    reasons = [f"ML score: {ml_score:.2f}", "[ML]"]
+                    active_mode = "ML"
+                else:
+                    reasons.append("[heuristic]")
 
-    cv2.putText(frame, f"Threat: {level} ({max_threat:.2f})",
-                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+            if pair_score > max_threat:
+                max_threat = pair_score
+                threat_reasons = reasons
 
-    for i, reason in enumerate(threat_reasons):
-        cv2.putText(frame, reason, (10, 60 + i * 25),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        for pid, feat, bbox in people:
+            solo_score, reasons = scorer.score_solo(pid, feat, bbox, tracker)
+            if solo_score > max_threat:
+                max_threat = solo_score
+                threat_reasons = reasons
 
-    cv2.imshow("Campus Guardian", frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+        # --- clip pipeline ---
+        threat_active = max_threat >= 0.75
+        clip_event = clip_extractor.on_frame(frame, threat_active)
+        if clip_event is not None:
+            if clip_event["event"] == "started":
+                clip_extractor.write_pre_event(pre_buffer.get_frames())
+                print("CLIP STARTED")
+            elif clip_event["event"] == "completed":
+                print(f"CLIP SAVED: {clip_event['clip_path']}")
 
-cap.release()
-cv2.destroyAllWindows()
+        # --- display ---
+        if max_threat >= 0.75:
+            level, color = "HIGH", (0, 0, 255)
+        elif max_threat >= 0.5:
+            level, color = "MEDIUM", (0, 165, 255)
+        elif max_threat >= 0.3:
+            level, color = "LOW", (0, 255, 255)
+        else:
+            level, color = "NONE", (0, 255, 0)
+
+        cv2.putText(frame, f"Threat: {level} ({max_threat:.2f})",
+                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+
+        for i, reason in enumerate(threat_reasons):
+            cv2.putText(frame, reason, (10, 60 + i * 25),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+
+        h_frame = frame.shape[0]
+        cv2.putText(frame, f"Samples: {len(classifier.training_data)}  Mode: {active_mode}",
+                    (10, h_frame - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        cv2.putText(frame, f"Clip: {clip_extractor.phase}",
+                    (10, h_frame - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+        cv2.imshow("Campus Guardian", frame)
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            break
+        elif key == ord('t') and last_feature_vec is not None:
+            classifier.add_sample(last_feature_vec, 1)
+        elif key == ord('f') and last_feature_vec is not None:
+            classifier.add_sample(last_feature_vec, 0)
+        elif key == ord('r'):
+            classifier.retrain()
+
+    cap.release()
+    rolling_buffer.release()
+    clip_extractor.finalize()
+    cv2.destroyAllWindows()
