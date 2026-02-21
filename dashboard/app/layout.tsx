@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import OpenRouteButton from "./components/OpenRouteButton";
+import RouteSearchControls from "./components/RouteSearchControls";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,10 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <div className="text-xs text-slate-300">Atlanta Police Department</div>
               </div>
             </div>
-            <div className="flex-1 flex items-center gap-4">
-              <input placeholder="Search for safest route..." className="w-full rounded-full bg-[#0b314f] px-4 py-3 placeholder:text-slate-300 focus:outline-none" />
-              <OpenRouteButton />
-            </div>
+            <RouteSearchControls />
             <div className="flex items-center gap-4 text-sm text-slate-300">
               <span className="flex items-center gap-2"><span className="h-2 w-2 bg-green-400 rounded-full"/> AI Monitoring Active</span>
               <span>1,247 Cameras Online</span>

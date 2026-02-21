@@ -1,16 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FaCamera, FaShieldAlt, FaCog } from "react-icons/fa";
+import { FaCamera } from "react-icons/fa";
 import dynamic from "next/dynamic";
+import RoutePanel from "./components/RoutePanel";
 
 const MapClientWrapper = dynamic(() => import("./components/Map"), { ssr: false });
 
 export default function Home() {
   const [showRoutes, setShowRoutes] = useState(false);
+  const [routeQuery, setRouteQuery] = useState("");
 
   useEffect(() => {
-    function onOpen() {
+    function onOpen(event: Event) {
+      const customEvent = event as CustomEvent<{ query?: string }>;
+      const query = typeof customEvent.detail?.query === "string" ? customEvent.detail.query.trim() : "";
+      setRouteQuery(query);
       setShowRoutes(true);
     }
     window.addEventListener("open-route-panel", onOpen as EventListener);
@@ -31,7 +36,7 @@ export default function Home() {
         </div>
 
         {/* camera icons overlay (removed diagonal layout) */}
-        <div className="absolute inset-0" />
+        <div className="absolute inset-0 pointer-events-none" />
 
         {/* left info card */}
         <div className="absolute left-8 bottom-8 z-30 w-[320px]">
@@ -61,86 +66,18 @@ export default function Home() {
         <div className="absolute top-16 right-8 z-40">
           <div className="bg-white rounded-xl shadow p-3">
             <div className="text-sm font-semibold mb-2">View Mode</div>
-            <button className="w-full bg-[#1769e0] text-white rounded-md py-2 mb-2">Camera View</button>
-            <button className="w-full text-left py-2">Risk Heatmap</button>
-            <button className="w-full text-left py-2">Safe Route Mode</button>
+            <button type="button" className="w-full bg-[#1769e0] text-white rounded-md py-2 mb-2">Camera View</button>
+            <button type="button" className="w-full text-left py-2">Risk Heatmap</button>
+            <button type="button" className="w-full text-left py-2">Safe Route Mode</button>
             <div className="flex gap-2 mt-3">
-              <button className="bg-white border rounded p-1">+</button>
-              <button className="bg-white border rounded p-1">-</button>
+              <button type="button" className="bg-white border rounded p-1">+</button>
+              <button type="button" className="bg-white border rounded p-1">-</button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* bottom route panel (example) */}
-      {showRoutes && (
-        <div className="px-8 py-6 bg-white mt-6 rounded-t-2xl shadow-lg max-w-[980px] mx-auto -translate-y-8">
-          <div className="flex justify-end mb-2">
-            <button onClick={() => setShowRoutes(false)} className="text-sm text-slate-500">Close ✕</button>
-          </div>
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-xl font-bold">Available Routes</h3>
-            <p className="text-sm text-slate-500">Sorted by safety score</p>
-          </div>
-          <div className="text-green-600 font-semibold bg-green-50 px-3 py-2 rounded">92/100</div>
-        </div>
-
-        <div className="mt-4 grid gap-4">
-          <div className="border rounded-xl p-4 bg-yellow-50 border-amber-300">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-amber-700 font-semibold">AI RECOMMENDED SAFEST ROUTE</div>
-                <div className="text-lg font-bold">Via Peachtree St NE</div>
-              </div>
-              <div className="text-green-700 font-bold bg-white px-3 py-2 rounded">92/100</div>
-            </div>
-            <div className="mt-4 flex gap-6 text-sm text-slate-600">
-              <div>
-                <div className="text-xs text-slate-400">Distance</div>
-                <div className="font-semibold">5.2 mi</div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-400">Time</div>
-                <div className="font-semibold">14 min</div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-400">Cameras</div>
-                <div className="font-semibold text-blue-600">24</div>
-              </div>
-            </div>
-            <div className="mt-4">
-              <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
-                <div className="h-3 bg-green-500 rounded-full w-[92%]" />
-              </div>
-            </div>
-          </div>
-
-          <div className="border rounded-xl p-4 bg-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-lg font-bold">Via North Ave NE</div>
-              </div>
-              <div className="text-amber-700 font-semibold bg-amber-50 px-3 py-2 rounded">75/100</div>
-            </div>
-            <div className="mt-4 flex gap-6 text-sm text-slate-600">
-              <div>
-                <div className="text-xs text-slate-400">Distance</div>
-                <div className="font-semibold">4.8 mi</div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-400">Time</div>
-                <div className="font-semibold">12 min</div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-400">Cameras</div>
-                <div className="font-semibold text-blue-600">18</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    )}
+      {showRoutes && <RoutePanel onClose={() => setShowRoutes(false)} query={routeQuery} />}
     </div>
   );
 }

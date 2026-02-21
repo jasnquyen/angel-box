@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start",
     "lint": "biome check",
     "format": "biome format --write"
   },
   "dependencies": {
+    "@react-google-maps/api": "^2.20.8",
     "leaflet": "^1.9.4",
     "next": "16.1.6",
     "react": "19.2.3",
