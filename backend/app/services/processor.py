@@ -7,7 +7,43 @@ from sqlalchemy.orm import Session
 
 from app import crud, models
 from app.config import settings
-from app.schemas import DetectionIn
+from app.schemas import DetectionIn, EdgeAlert
+
+
+def _edge_alert_to_detection(
+    edge_alert: EdgeAlert,
+    device_id: str = "edge_camera_01",
+    latitude: float = 40.7128,
+    longitude: float = -74.0060,
+) -> DetectionIn:
+    """
+    Convert EdgeAlert format to DetectionIn format.
+    
+    Args:
+        edge_alert: Alert from edge device
+        device_id: Device identifier (hardcoded default)
+        latitude: Camera latitude (hardcoded)
+        longitude: Camera longitude (hardcoded)
+    
+    Returns:
+        DetectionIn payload compatible with backend processing
+    """
+    # Convert unix timestamp to datetime
+    dt = datetime.fromtimestamp(edge_alert.timestamp, tz=timezone.utc)
+    
+    # Map threat level to label
+    label = "violence_detection"  # Default label, could map level to specific labels
+    
+    return DetectionIn(
+        device_id=device_id,
+        latitude=latitude,
+        longitude=longitude,
+        timestamp=dt,
+        label=label,
+        confidence=edge_alert.threat_score,  # Use threat_score as confidence
+        threat_score=edge_alert.threat_score,
+        frame_b64=edge_alert.frame_b64,
+    )
 
 
 def _threat_level(score: float) -> str:

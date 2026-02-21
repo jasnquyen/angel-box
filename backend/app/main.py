@@ -21,8 +21,8 @@ from app import models
 from app.config import settings
 from app.db import engine, get_db
 from app.routes import alerts, incidents
-from app.schemas import DetectionIn
-from app.services.processor import process_detection
+from app.schemas import DetectionIn, EdgeAlert
+from app.services.processor import process_detection, _edge_alert_to_detection
 from app.ws import ws_manager
 
 app = FastAPI(title="Angel Box", version="0.1.0")
@@ -59,6 +59,62 @@ def health() -> dict:
 async def ingest_detection(payload: DetectionIn, db: Session = Depends(get_db)) -> dict:
     try:
         incident, alert = process_detection(db=db, payload=payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if alert is not None:
+        await ws_manager.broadcast_json(
+            {
+                "type": "alert.created",
+                "version": 1,
+                "payload": {
+                    "alert_id": alert.id,
+                    "incident_id": incident.id,
+                    "device_id": incident.device_id,
+                    "timestamp": alert.timestamp.isoformat(),
+                    "threat_level": alert.threat_level,
+                    "label": alert.label,
+                    "confidence": alert.confidence,
+                    "threat_score": alert.threat_score,
+                    "latitude": incident.latitude,
+                    "longitude": incident.longitude,
+                    "frame_url": alert.frame_url,
+                    "gemini_narration": alert.gemini_narration,
+                },
+            }
+        )
+
+    return {
+        "accepted": True,
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "incident_id": incident.id,
+        "alert_created": alert is not None,
+        "alert_id": alert.id if alert else None,
+    }
+
+
+@app.post("/edge/alerts")
+async def ingest_edge_alert(
+    payload: EdgeAlert,
+    db: Session = Depends(get_db),
+    device_id: str = "edge_camera_01",
+    latitude: float = 40.7128,
+    longitude: float = -74.0060,
+) -> dict:
+    """
+    Ingest alerts from edge device.
+    
+    Query parameters:
+    - device_id: Device identifier (default: edge_camera_01)
+    - latitude: Camera latitude (default: 40.7128)
+    - longitude: Camera longitude (default: -74.0060)
+    """
+    try:
+        # Convert edge alert format to detection format
+        detection = _edge_alert_to_detection(
+            payload, device_id=device_id, latitude=latitude, longitude=longitude
+        )
+        incident, alert = process_detection(db=db, payload=detection)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
