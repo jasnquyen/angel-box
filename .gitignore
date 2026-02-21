@@ -1,0 +1,7 @@
+.idea*
+
+edge/venv*
+
+edge/pycache/*
+
+edge/__pycache__/*
