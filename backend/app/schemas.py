@@ -1,6 +1,9 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+AlertStatus = Literal["pending", "confirmed_threat", "false_alarm"]
 
 
 class DetectionIn(BaseModel):  # Validated ingestion schema for incoming detection data
@@ -24,7 +27,7 @@ class AlertOut(BaseModel):  # Schema for outgoing alert data sent to clients and
     threat_score: float
     frame_url: str | None = None
     gemini_narration: str | None = None
-    status: str
+    status: AlertStatus
 
     class Config:
         from_attributes = True
@@ -46,3 +49,7 @@ class IncidentOut(BaseModel):  # Schema for incident data sent to clients and st
 
     class Config:
         from_attributes = True
+
+
+class AlertFeedbackIn(BaseModel):
+    status: AlertStatus

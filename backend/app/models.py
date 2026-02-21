@@ -64,6 +64,6 @@ class Alert(Base):
     threat_score: Mapped[float] = mapped_column(Float)
     frame_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     gemini_narration: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(String(32), default="new", index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
 
     incident: Mapped[Incident] = relationship(back_populates="alerts")

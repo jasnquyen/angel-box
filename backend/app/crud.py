@@ -4,7 +4,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app import models
-from app.schemas import DetectionIn
+from app.schemas import AlertStatus, DetectionIn
 
 
 def create_detection_event(
@@ -94,7 +94,7 @@ def create_alert(
         threat_score=payload.threat_score,
         frame_url=frame_url,
         gemini_narration=gemini_narration,
-        status="new",
+        status="pending",
     )
     db.add(alert)
     db.flush()
@@ -109,3 +109,17 @@ def list_alerts(db: Session, limit: int = 100) -> list[models.Alert]:
 def list_incidents(db: Session, limit: int = 100) -> list[models.Incident]:
     stmt = select(models.Incident).order_by(desc(models.Incident.last_seen)).limit(limit)
     return list(db.execute(stmt).scalars().all())
+
+
+def get_alert_by_id(db: Session, alert_id: int) -> models.Alert | None:
+    return db.get(models.Alert, alert_id)
+
+
+def update_alert_status(db: Session, alert_id: int, status: AlertStatus) -> models.Alert | None:
+    alert = get_alert_by_id(db, alert_id)
+    if alert is None:
+        return None
+    alert.status = status
+    db.commit()
+    db.refresh(alert)
+    return alert
