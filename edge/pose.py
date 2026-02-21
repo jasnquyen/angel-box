@@ -1,4 +1,3 @@
-# pose.py
 import cv2
 import mediapipe as mp
 from mediapipe.tasks import python
