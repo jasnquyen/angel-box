@@ -47,7 +47,7 @@ def on_startup() -> None:
         os.makedirs(settings.evidence_dir, exist_ok=True)
     if settings.save_clips:
         os.makedirs(settings.clips_dir, exist_ok=True)
-    models.Base.metadata.create_all(bind=engine)
+    print("✓ Backend initialized successfully")
 
 
 @app.get("/health")
