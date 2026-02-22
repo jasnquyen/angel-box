@@ -1,3 +1,0 @@
-GOOGLE_MAPS_API_KEY=
-GOOGLE_MAPS_BASE_URL=https://maps.googleapis.com/maps/api
-GOOGLE_MAPS_TIMEOUT_SECONDS=10
