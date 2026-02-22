@@ -6,7 +6,7 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from './ui/resiz
 import { Activity, PlayCircle, Wifi, WifiOff, Wrench } from 'lucide-react';
 import { format } from 'date-fns';
 import { mockAngelBoxes } from '../data/mockAngelBoxes';
-import { WebRTCPlayer } from './WebRTCPlayer';
+import { WebSocketPlayer } from './WebSocketPlayer';
 
 interface CameraViewProps {
   cameraId: string;
@@ -75,7 +75,7 @@ export function CameraView({ cameraId }: CameraViewProps) {
           <Card className="flex-1 bg-black relative overflow-hidden flex flex-col">
             {/* WebRTC Video Feed */}
             <div className="flex-1 relative">
-              <WebRTCPlayer 
+              <WebSocketPlayer 
                 streamUrl={`wss://angelbox-${angelBox.id}.stream`}
                 cameraId={angelBox.id}
               />

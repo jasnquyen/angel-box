@@ -10,7 +10,7 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from './ui/resiz
 import { AlertCircle, Activity, Flame, Wrench, Heart, ShoppingBag, CheckCircle, Clock, PlayCircle, Wifi, WifiOff } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import { mockAngelBoxes } from '../data/mockAngelBoxes';
-import { WebRTCPlayer } from './WebRTCPlayer';
+import { WebSocketPlayer } from './WebSocketPlayer';
 
 interface ActiveIncidentViewProps {
   incident: Incident;
@@ -97,17 +97,13 @@ export function ActiveIncidentView({ incident, onFeedback, onResolve, preInciden
             <h2 className="text-lg font-semibold">Video Feed</h2>
             <div className="flex items-center gap-2 mt-1">
               <p className="text-sm text-slate-600 dark:text-slate-400">AngelBox {incident.boxId}</p>
-              <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full ${statusInfo.bg}`}>
-                <StatusIcon className={`w-3 h-3 ${statusInfo.color}`} />
-                <span className={`text-xs font-medium ${statusInfo.color}`}>{statusInfo.label}</span>
-              </div>
             </div>
           </div>
           
           <Card className="flex-1 bg-black relative overflow-hidden flex flex-col">
             {/* WebRTC Video Feed */}
             <div className="flex-1 relative">
-              <WebRTCPlayer 
+              <WebSocketPlayer 
                 streamUrl={`wss://angelbox-${incident.boxId}.stream`}
                 cameraId={incident.boxId}
               />
@@ -154,16 +150,17 @@ export function ActiveIncidentView({ incident, onFeedback, onResolve, preInciden
                 
                 {/* Notable Timestamps */}
                 <div className="flex items-center justify-between text-xs text-white/60">
-                  {notableTimestamps.map((timestamp, index) => (
-                    <button
-                      key={index}
-                      onClick={() => handleTimelineChange([timestamp.position])}
-                      className="flex flex-col items-center hover:text-white/90 transition-colors"
-                    >
-                      <span className="font-mono">{format(timestamp.time, 'HH:mm:ss')}</span>
-                      <span className="text-[10px] mt-0.5">{timestamp.label}</span>
-                    </button>
-                  ))}
+                  <div className="flex flex-col items-center">
+                    <span className="font-mono">{format(new Date(new Date(incident.timestamp).getTime() - preIncidentBuffer * 60000), 'HH:mm:ss')}</span>
+                    <span className="text-[10px] mt-0.5">Start</span>
+                  </div>
+                  <button
+                    onClick={() => handleTimelineChange([75])}
+                    className="flex flex-col items-center hover:text-white/90 transition-colors"
+                  >
+                    <span className="font-mono">{format(new Date(incident.timestamp), 'HH:mm:ss')}</span>
+                    <span className="text-[10px] mt-0.5">Incident Reported</span>
+                  </button>
                   <div className="flex flex-col items-center">
                     <span className="font-mono">{isLive ? format(new Date(), 'HH:mm:ss') : 'LIVE'}</span>
                     <span className="text-[10px] mt-0.5">Current</span>
@@ -209,9 +206,8 @@ export function ActiveIncidentView({ incident, onFeedback, onResolve, preInciden
               {/* Stats Grid */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">First Detected</p>
-                  <p className="text-sm font-medium">{format(new Date(incident.timestamp), 'PPpp')}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Reported</p>
+                  <p className="text-sm font-medium">
                     {formatDistanceToNow(new Date(incident.timestamp), { addSuffix: true })}
                   </p>
                 </div>

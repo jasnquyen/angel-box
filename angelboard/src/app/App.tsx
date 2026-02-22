@@ -8,7 +8,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { ThemeProvider } from './providers/ThemeProvider';
 import { mockIncidents } from './data/mockIncidents';
 import type { Incident, FeedbackType } from './types/incident';
-import { Shield, Clock, CheckCircle2, AlertTriangle, Settings } from 'lucide-react';
+import { Clock, CheckCircle2, AlertTriangle, Settings } from 'lucide-react';
 import { Badge } from './components/ui/badge';
 import { Button } from './components/ui/button';
 
@@ -71,7 +71,6 @@ export default function App() {
   const activeIncident = incidents.find(i => i.id === activeIncidentId);
 
   return (
-    <>
     <ThemeProvider>
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
         <Tabs value={currentTab} onValueChange={setCurrentTab} className="w-full h-screen flex flex-col">
@@ -81,7 +80,7 @@ export default function App() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="bg-blue-600 p-2 rounded-lg">
-                    <Shield className="w-6 h-6 text-white" />
+                    <img src="/angellogo.svg" alt="AngelBox Logo" className="w-6 h-6" />
                   </div>
                   <div>
                     <h1 className="text-xl font-semibold">AngelBoard</h1>
@@ -218,6 +217,5 @@ export default function App() {
         />
       </div>
     </ThemeProvider>
-    </>
   );
 }
