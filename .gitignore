@@ -1,3 +1,7 @@
 .idea*
 
 edge/venv*
+
+shiv_backend/.env
+
+shiv_backend/.env
