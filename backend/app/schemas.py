@@ -53,3 +53,12 @@ class IncidentOut(BaseModel):  # Schema for incident data sent to clients and st
 
 class AlertFeedbackIn(BaseModel):
     status: AlertStatus
+
+
+class EdgeAlert(BaseModel):  # Schema for incoming alerts from edge device (raw format)
+    timestamp: float  # Unix timestamp
+    threat_score: float = Field(ge=0.0, le=1.0)
+    level: str  # HIGH, MEDIUM, LOW, NONE
+    reasons: list[str]
+    frame_number: int | None = None
+    frame_b64: str | None = None
