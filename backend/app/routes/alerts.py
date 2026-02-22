@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app import crud
 from app.db import get_db
 from app.schemas import AlertFeedbackIn, AlertOut
-from app.ws import ws_manager
+from app.ws import ws_manager, edge_ws_manager
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -33,4 +33,11 @@ async def set_alert_feedback(
             },
         }
     )
+
+    if payload.status in ("confirmed_threat", "false_alarm"):
+        feedback_label = 1 if payload.status == "confirmed_threat" else 0
+        await edge_ws_manager.send_to_edges(
+            {"type": "feedback", "label": feedback_label}
+        )
+
     return alert

@@ -504,15 +504,24 @@ if __name__ == "__main__":
     frame_buffer = deque(maxlen=450)  # 30 sec at 15fps
 
     rolling_buffer = RollingBuffer(fps=15)
-    pre_buffer = PreEventBuffer(buffer_seconds=30, fps=15)
-    clip_extractor = ClipExtractor(fps=15)
+    pre_buffer = PreEventBuffer(buffer_seconds=5, fps=15)
+    clip_extractor = ClipExtractor(fps=15, post_event_seconds=10)
 
     server_url = os.environ.get("EDGE_WS_URL", "ws://localhost:8000/ws/edge")
-    streamer = StreamerBridge(server_url)
+    device_id = os.environ.get("EDGE_DEVICE_ID", "edge_camera_01")
+    edge_lat = os.environ.get("EDGE_LATITUDE")
+    edge_lon = os.environ.get("EDGE_LONGITUDE")
+    streamer = StreamerBridge(
+        server_url,
+        device_id=device_id,
+        latitude=float(edge_lat) if edge_lat else None,
+        longitude=float(edge_lon) if edge_lon else None,
+    )
     streamer.connect()
     last_heartbeat = time.time()
 
-    cap = cv2.VideoCapture(0)
+    cam_index = int(os.environ.get("EDGE_CAMERA_INDEX", "4"))
+    cap = cv2.VideoCapture(cam_index)
     last_feature_vec = None
     classifier = ThreatClassifier()
 
