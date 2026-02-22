@@ -2,10 +2,6 @@
 
 edge/venv*
 
-edge/pycache/*
+dashboard/node_modules*
 
-edge/__pycache__/*
-
-/angelboard/node_modules/*
-
-/dashboard/node_modules/*
+angelboard/node_modules*
