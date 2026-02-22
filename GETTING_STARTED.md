@@ -192,23 +192,22 @@ export DISPLAY=:0
 
 ## 4. Remote Access (Cloudflare Tunnel)
 
-If the edge device and backend are on different networks, use a Cloudflare tunnel to expose the backend:
+The backend is exposed at `angel.miraii.me` via a named Cloudflare tunnel. The tunnel config lives at `~/.cloudflared/config.yml` and routes `angel.miraii.me` → `localhost:8000`.
 
 ```bash
-cd edge
-./tunnel.sh
+cloudflared tunnel run
 ```
 
-This starts a free quick tunnel. Look for the line with `https://<random>.trycloudflare.com` in the output, then configure the edge:
+Then configure the edge to connect through the tunnel:
 
 ```bash
-export EDGE_WS_URL=wss://<random>.trycloudflare.com/ws/edge
+export EDGE_WS_URL=wss://angel.miraii.me/ws/edge
 ```
 
 And the frontend:
 
 ```env
-VITE_API_URL=https://<random>.trycloudflare.com
+VITE_API_URL=https://angel.miraii.me
 ```
 
 ---

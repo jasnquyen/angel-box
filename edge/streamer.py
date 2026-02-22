@@ -15,6 +15,12 @@ class EdgeStreamer:
 
     def __init__(self, server_url="ws://localhost:8000/ws/edge",
                  device_id=None, latitude=None, longitude=None):
+        # Normalise scheme: http(s):// → ws(s)://
+        if server_url.startswith("https://"):
+            server_url = "wss://" + server_url[len("https://"):]
+        elif server_url.startswith("http://"):
+            server_url = "ws://" + server_url[len("http://"):]
+
         # Append device query params to the WebSocket URL
         params = {}
         if device_id:
