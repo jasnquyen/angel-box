@@ -4,4 +4,10 @@ edge/venv*
 
 shiv_backend/.env
 
-shiv_backend/.env
+edge/pycache/*
+
+edge/__pycache__/*
+
+/angelboard/node_modules/*
+
+/dashboard/node_modules/*
