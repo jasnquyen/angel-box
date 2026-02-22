@@ -26,7 +26,7 @@ def create_detection_event(
 
 
 def find_recent_open_incident(
-    db: Session, device_id: str, label: str, debounce_seconds: int
+    db: Session, device_id: int | None, label: str, debounce_seconds: int
 ) -> models.Incident | None:
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=debounce_seconds)
     stmt = (
@@ -76,6 +76,22 @@ def update_incident(
     if frame_url:
         incident.last_frame_url = frame_url
     return incident
+
+
+def find_recent_alert_for_incident(
+    db: Session, incident_id: int, cooldown_seconds: int
+) -> models.Alert | None:
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=cooldown_seconds)
+    stmt = (
+        select(models.Alert)
+        .where(
+            models.Alert.incident_id == incident_id,
+            models.Alert.timestamp >= cutoff,
+        )
+        .order_by(desc(models.Alert.timestamp))
+        .limit(1)
+    )
+    return db.execute(stmt).scalar_one_or_none()
 
 
 def create_alert(

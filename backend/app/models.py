@@ -12,11 +12,22 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class Device(Base):
+    __tablename__ = "devices"
+
+    device_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    incidents: Mapped[list["Incident"]] = relationship(back_populates="device")
+    detection_events: Mapped[list["DetectionEvent"]] = relationship(back_populates="device")
+
+
 class DetectionEvent(Base): #Stores raw dection from Jetson
     __tablename__ = "detection_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    device_id: Mapped[str] = mapped_column(String(128), index=True)
+    device_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("devices.device_id", ondelete="CASCADE"), nullable=True, index=True
+    )
     latitude: Mapped[float] = mapped_column(Float, index=True)
     longitude: Mapped[float] = mapped_column(Float, index=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
@@ -26,12 +37,16 @@ class DetectionEvent(Base): #Stores raw dection from Jetson
     frame_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
+    device: Mapped[Device | None] = relationship(back_populates="detection_events")
+
 
 class Incident(Base):
     __tablename__ = "incidents"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    device_id: Mapped[str] = mapped_column(String(128), index=True)
+    device_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("devices.device_id", ondelete="CASCADE"), nullable=True, index=True
+    )
     latitude: Mapped[float] = mapped_column(Float, index=True)
     longitude: Mapped[float] = mapped_column(Float, index=True)
     label: Mapped[str] = mapped_column(String(128), index=True)
@@ -47,6 +62,7 @@ class Incident(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
+    device: Mapped[Device | None] = relationship(back_populates="incidents")
     alerts: Mapped[list["Alert"]] = relationship(
         back_populates="incident", cascade="all, delete-orphan"
     )

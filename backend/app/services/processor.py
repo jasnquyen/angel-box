@@ -12,19 +12,19 @@ from app.schemas import DetectionIn, EdgeAlert
 
 def _edge_alert_to_detection(
     edge_alert: EdgeAlert,
-    device_id: str = "edge_camera_01",
+    device_id: int | None = None,
     latitude: float = 40.7128,
     longitude: float = -74.0060,
 ) -> DetectionIn:
     """
     Convert EdgeAlert format to DetectionIn format.
-    
+
     Args:
         edge_alert: Alert from edge device
-        device_id: Device identifier (hardcoded default)
+        device_id: Device ID (integer FK into devices table, or None)
         latitude: Camera latitude (hardcoded)
         longitude: Camera longitude (hardcoded)
-    
+
     Returns:
         DetectionIn payload compatible with backend processing
     """
@@ -103,14 +103,20 @@ def process_detection(
         payload.confidence >= settings.alert_confidence_threshold
         and payload.threat_score >= settings.threat_score_threshold
     ):
-        alert = crud.create_alert(
+        recent = crud.find_recent_alert_for_incident(
             db=db,
             incident_id=incident.id,
-            payload=payload,
-            frame_url=frame_url,
-            threat_level=_threat_level(payload.threat_score),
-            gemini_narration=_gemini_stub(payload),
+            cooldown_seconds=settings.alert_cooldown_seconds,
         )
+        if recent is None:
+            alert = crud.create_alert(
+                db=db,
+                incident_id=incident.id,
+                payload=payload,
+                frame_url=frame_url,
+                threat_level=_threat_level(payload.threat_score),
+                gemini_narration=_gemini_stub(payload),
+            )
 
     db.commit()
     db.refresh(incident)

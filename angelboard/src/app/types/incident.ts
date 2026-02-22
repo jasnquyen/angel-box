@@ -15,4 +15,13 @@ export interface Incident {
   boxId: string;
   videoFeedUrl?: string;
   notes?: string;
+  // Optional backend fields
+  backendAlertId?: number;
+  backendIncidentId?: number;
+  latitude?: number;
+  longitude?: number;
+  frameUrl?: string;
+  geminiNarration?: string;
+  threatScore?: number;
+  clipUrls?: string[];
 }

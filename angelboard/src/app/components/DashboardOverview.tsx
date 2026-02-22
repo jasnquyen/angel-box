@@ -1,26 +1,15 @@
 import { Card } from './ui/card';
 import { Button } from './ui/button';
-import { Shield, CheckCircle2, Wifi, WifiOff, Wrench, Activity } from 'lucide-react';
-import { mockAngelBoxes } from '../data/mockAngelBoxes';
+import { Shield, CheckCircle2, Wifi, WifiOff } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface DashboardOverviewProps {
   totalResolved: number;
   onViewResolved: () => void;
+  wsConnected?: boolean;
 }
 
-export function DashboardOverview({ totalResolved, onViewResolved }: DashboardOverviewProps) {
-  const onlineBoxes = mockAngelBoxes.filter(box => box.status === 'online').length;
-  const offlineBoxes = mockAngelBoxes.filter(box => box.status === 'offline').length;
-  const maintenanceBoxes = mockAngelBoxes.filter(box => box.status === 'maintenance').length;
-  const totalBoxes = mockAngelBoxes.length;
-
-  const statusConfig = {
-    online: { icon: Wifi, color: 'text-green-500', bg: 'bg-green-500/10', label: 'Online' },
-    offline: { icon: WifiOff, color: 'text-red-500', bg: 'bg-red-500/10', label: 'Offline' },
-    maintenance: { icon: Wrench, color: 'text-yellow-500', bg: 'bg-yellow-500/10', label: 'Maintenance' },
-  };
-
+export function DashboardOverview({ totalResolved, onViewResolved, wsConnected }: DashboardOverviewProps) {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       {/* Header Status */}
@@ -33,7 +22,7 @@ export function DashboardOverview({ totalResolved, onViewResolved }: DashboardOv
           No active incidents at this time
         </p>
         <p className="text-sm text-slate-500 dark:text-slate-500 mt-1">
-          {format(new Date(), 'PPPP')} • {format(new Date(), 'pp')}
+          {format(new Date(), 'PPPP')} &bull; {format(new Date(), 'pp')}
         </p>
       </div>
 
@@ -45,20 +34,24 @@ export function DashboardOverview({ totalResolved, onViewResolved }: DashboardOv
               <Shield className="w-6 h-6 text-blue-500" />
             </div>
             <div>
-              <p className="text-2xl font-bold">{totalBoxes}</p>
-              <p className="text-sm text-slate-600 dark:text-slate-400">Total AngelBoxes</p>
+              <p className="text-2xl font-bold">AngelBox</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400">Monitoring System</p>
             </div>
           </div>
         </Card>
 
         <Card className="p-6">
           <div className="flex items-center gap-4">
-            <div className="p-3 rounded-lg bg-green-500/10">
-              <Wifi className="w-6 h-6 text-green-500" />
+            <div className={`p-3 rounded-lg ${wsConnected ? 'bg-green-500/10' : 'bg-red-500/10'}`}>
+              {wsConnected ? (
+                <Wifi className="w-6 h-6 text-green-500" />
+              ) : (
+                <WifiOff className="w-6 h-6 text-red-500" />
+              )}
             </div>
             <div>
-              <p className="text-2xl font-bold">{onlineBoxes}</p>
-              <p className="text-sm text-slate-600 dark:text-slate-400">Online</p>
+              <p className="text-2xl font-bold">{wsConnected ? 'Connected' : 'Disconnected'}</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400">WebSocket Status</p>
             </div>
           </div>
         </Card>
@@ -76,61 +69,34 @@ export function DashboardOverview({ totalResolved, onViewResolved }: DashboardOv
         </Card>
       </div>
 
-      {/* AngelBox Status */}
+      {/* System Connection Status */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-lg font-semibold">AngelBox Network Status</h3>
+            <h3 className="text-lg font-semibold">System Connection</h3>
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              Real-time status of all monitoring units
+              Real-time connection to backend services
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
-          {mockAngelBoxes.map(box => {
-            const statusInfo = statusConfig[box.status];
-            const StatusIcon = statusInfo.icon;
-            
-            return (
-              <div
-                key={box.id}
-                className="flex items-center justify-between p-4 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors"
-              >
-                <div className="flex-1">
-                  <p className="font-medium font-mono text-sm">AngelBox {box.id}</p>
-                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-                    {box.location}
-                  </p>
-                </div>
-                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full ${statusInfo.bg}`}>
-                  <StatusIcon className={`w-3.5 h-3.5 ${statusInfo.color}`} />
-                  <span className={`text-xs font-medium ${statusInfo.color}`}>
-                    {statusInfo.label}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {(offlineBoxes > 0 || maintenanceBoxes > 0) && (
-          <div className="mt-4 p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-            <div className="flex items-start gap-3">
-              <Activity className="w-5 h-5 text-yellow-600 dark:text-yellow-500 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-yellow-600 dark:text-yellow-500">
-                  System Status Alert
-                </p>
-                <p className="text-sm text-yellow-600/80 dark:text-yellow-500/80 mt-1">
-                  {offlineBoxes > 0 && `${offlineBoxes} unit${offlineBoxes > 1 ? 's' : ''} offline`}
-                  {offlineBoxes > 0 && maintenanceBoxes > 0 && ' • '}
-                  {maintenanceBoxes > 0 && `${maintenanceBoxes} unit${maintenanceBoxes > 1 ? 's' : ''} in maintenance`}
-                </p>
-              </div>
-            </div>
+        <div className="flex items-center gap-4 p-4 rounded-lg border border-slate-200 dark:border-slate-800">
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${wsConnected ? 'bg-green-500/10' : 'bg-red-500/10'}`}>
+            {wsConnected ? (
+              <Wifi className={`w-4 h-4 text-green-500`} />
+            ) : (
+              <WifiOff className={`w-4 h-4 text-red-500`} />
+            )}
+            <span className={`text-sm font-medium ${wsConnected ? 'text-green-500' : 'text-red-500'}`}>
+              {wsConnected ? 'Live' : 'Reconnecting...'}
+            </span>
           </div>
-        )}
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            {wsConnected
+              ? 'Dashboard is receiving real-time alerts and video frames.'
+              : 'Connection lost. Attempting to reconnect automatically...'}
+          </p>
+        </div>
       </Card>
 
       {/* Quick Actions */}

@@ -28,6 +28,7 @@ class Settings:
     alert_confidence_threshold: float = float(os.getenv("ALERT_CONFIDENCE_THRESHOLD", "0.8"))
     threat_score_threshold: float = float(os.getenv("THREAT_SCORE_THRESHOLD", "0.75"))
     incident_debounce_seconds: int = int(os.getenv("INCIDENT_DEBOUNCE_SECONDS", "10"))
+    alert_cooldown_seconds: int = int(os.getenv("ALERT_COOLDOWN_SECONDS", "60"))
     max_frame_size_bytes: int = int(os.getenv("MAX_FRAME_SIZE_BYTES", "2000000"))
 
     save_frames: bool = _bool("SAVE_FRAMES", True)

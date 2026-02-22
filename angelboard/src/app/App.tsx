@@ -6,63 +6,54 @@ import { CameraView } from './components/CameraView';
 import { DashboardOverview } from './components/DashboardOverview';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ThemeProvider } from './providers/ThemeProvider';
-import { mockIncidents } from './data/mockIncidents';
+import { useBackend } from './hooks/useBackend';
 import type { Incident, FeedbackType } from './types/incident';
-import { Clock, CheckCircle2, AlertTriangle, Settings } from 'lucide-react';
+import { Clock, CheckCircle2, AlertTriangle, Settings, Loader2 } from 'lucide-react';
 import { Badge } from './components/ui/badge';
 import { Button } from './components/ui/button';
 
 export default function App() {
-  const [incidents, setIncidents] = useState<Incident[]>(mockIncidents);
-  const [activeIncidentId, setActiveIncidentId] = useState<string | null>(
-    mockIncidents.find(i => i.status === 'in-progress')?.id || null
-  );
+  const { incidents, setIncidents, liveFrame, clips, wsConnected, loading, error, sendFeedback } = useBackend();
+
+  const [activeIncidentId, setActiveIncidentId] = useState<string | null>(null);
   const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [preIncidentBuffer, setPreIncidentBuffer] = useState(5); // minutes before incident
-  const [currentTab, setCurrentTab] = useState<string>(
-    mockIncidents.find(i => i.status === 'in-progress') ? 'in-progress' : 'queued'
-  );
+  const [preIncidentBuffer, setPreIncidentBuffer] = useState(5);
+  const [currentTab, setCurrentTab] = useState<string>('queued');
 
   const queuedIncidents = incidents.filter(i => i.status === 'queued');
   const inProgressIncidents = incidents.filter(i => i.status === 'in-progress');
   const resolvedIncidents = incidents.filter(i => i.status === 'resolved');
-  
-  // Show overview when there are no queued or in-progress incidents
+
   const showOverview = queuedIncidents.length === 0 && inProgressIncidents.length === 0;
 
   const handleIncidentClick = (incident: Incident) => {
-    // Move all in-progress incidents back to queued
-    setIncidents(prev => prev.map(i => 
-      i.status === 'in-progress' 
-        ? { ...i, status: 'queued' as const } 
-        : i.id === incident.id 
-          ? { ...i, status: 'in-progress' as const } 
+    setIncidents(prev => prev.map(i =>
+      i.status === 'in-progress'
+        ? { ...i, status: 'queued' as const }
+        : i.id === incident.id
+          ? { ...i, status: 'in-progress' as const }
           : i
     ));
     setActiveIncidentId(incident.id);
+    setCurrentTab('in-progress');
   };
 
   const handleFeedback = (incidentId: string, feedback: FeedbackType) => {
-    setIncidents(prev => prev.map(i => 
-      i.id === incidentId ? { ...i, feedback } : i
-    ));
+    sendFeedback(incidentId, feedback);
   };
 
   const handleResolve = (incidentId: string, notes: string) => {
-    setIncidents(prev => prev.map(i => 
+    setIncidents(prev => prev.map(i =>
       i.id === incidentId ? { ...i, status: 'resolved' as const, notes } : i
     ));
-    // Clear active incident if this was it
     if (activeIncidentId === incidentId) {
       setActiveIncidentId(null);
     }
   };
 
   const handleBoxClick = (boxId: string) => {
-    // Just set the selected camera to view its feed
     setSelectedCameraId(boxId);
-    // Don't change tab if already on in-progress
     if (currentTab !== 'in-progress') {
       setCurrentTab('in-progress');
     }
@@ -70,9 +61,29 @@ export default function App() {
 
   const activeIncident = incidents.find(i => i.id === activeIncidentId);
 
+  if (loading) {
+    return (
+      <ThemeProvider>
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-blue-500" />
+            <p className="text-slate-600 dark:text-slate-400">Loading dashboard...</p>
+          </div>
+        </div>
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider>
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+        {/* Error banner */}
+        {error && (
+          <div className="bg-red-500/10 border-b border-red-500/20 px-6 py-2 text-sm text-red-600 dark:text-red-400">
+            Backend error: {error}
+          </div>
+        )}
+
         <Tabs value={currentTab} onValueChange={setCurrentTab} className="w-full h-screen flex flex-col">
           {/* Header */}
           <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-50">
@@ -130,9 +141,10 @@ export default function App() {
             {/* Show overview when no incidents */}
             {showOverview ? (
               <TabsContent value="queued" className="mt-0 h-full">
-                <DashboardOverview 
+                <DashboardOverview
                   totalResolved={resolvedIncidents.length}
                   onViewResolved={() => setCurrentTab('resolved')}
+                  wsConnected={wsConnected}
                 />
               </TabsContent>
             ) : (
@@ -147,9 +159,9 @@ export default function App() {
                   ) : (
                     <div className="grid gap-3">
                       {queuedIncidents.map(incident => (
-                        <IncidentCard 
-                          key={incident.id} 
-                          incident={incident} 
+                        <IncidentCard
+                          key={incident.id}
+                          incident={incident}
                           onClick={() => handleIncidentClick(incident)}
                         />
                       ))}
@@ -160,21 +172,24 @@ export default function App() {
                 {/* In-Progress Incidents */}
                 <TabsContent value="in-progress" className="mt-0 h-full">
                   {activeIncident ? (
-                    <ActiveIncidentView 
-                      incident={activeIncident} 
+                    <ActiveIncidentView
+                      incident={activeIncident}
                       onFeedback={handleFeedback}
                       onResolve={handleResolve}
                       preIncidentBuffer={preIncidentBuffer}
+                      liveFrame={liveFrame}
+                      clips={clips}
                     />
                   ) : selectedCameraId ? (
-                    <CameraView 
+                    <CameraView
                       cameraId={selectedCameraId}
+                      liveFrame={liveFrame}
                     />
                   ) : inProgressIncidents.length > 0 ? (
                     <div className="grid gap-3">
                       {inProgressIncidents.map(incident => (
-                        <IncidentCard 
-                          key={incident.id} 
+                        <IncidentCard
+                          key={incident.id}
                           incident={incident}
                           onClick={() => setActiveIncidentId(incident.id)}
                         />
@@ -209,8 +224,8 @@ export default function App() {
         </Tabs>
 
         {/* Settings Dialog */}
-        <SettingsDialog 
-          open={settingsOpen} 
+        <SettingsDialog
+          open={settingsOpen}
           onOpenChange={setSettingsOpen}
           preIncidentBuffer={preIncidentBuffer}
           onPreIncidentBufferChange={setPreIncidentBuffer}

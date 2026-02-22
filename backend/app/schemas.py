@@ -7,7 +7,7 @@ AlertStatus = Literal["pending", "confirmed_threat", "false_alarm"]
 
 
 class DetectionIn(BaseModel):  # Validated ingestion schema for incoming detection data
-    device_id: str
+    device_id: int | None = None
     latitude: float = Field(ge=-90.0, le=90.0)
     longitude: float = Field(ge=-180.0, le=180.0)
     timestamp: datetime
@@ -35,7 +35,7 @@ class AlertOut(BaseModel):  # Schema for outgoing alert data sent to clients and
 
 class IncidentOut(BaseModel):  # Schema for incident data sent to clients and stored in DB
     id: int
-    device_id: str
+    device_id: int | None = None
     latitude: float
     longitude: float
     label: str

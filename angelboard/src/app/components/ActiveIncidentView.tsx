@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Incident, FeedbackType } from '../types/incident';
+import type { LiveFrame, ClipMeta } from '../hooks/useBackend';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Card } from './ui/card';
@@ -7,19 +8,23 @@ import { Separator } from './ui/separator';
 import { Textarea } from './ui/textarea';
 import { Slider } from './ui/slider';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from './ui/resizable';
-import { AlertCircle, Activity, Flame, Wrench, Heart, ShoppingBag, CheckCircle, Clock, PlayCircle, Wifi, WifiOff } from 'lucide-react';
+import { AlertCircle, Activity, Flame, Wrench, Heart, ShoppingBag, CheckCircle, Clock, PlayCircle, Wifi, Film } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
-import { mockAngelBoxes } from '../data/mockAngelBoxes';
 import { WebSocketPlayer } from './WebSocketPlayer';
+import { getMediaUrl } from '../services/api';
+
+type VideoMode = 'live' | 'clips';
 
 interface ActiveIncidentViewProps {
   incident: Incident;
   onFeedback: (incidentId: string, feedback: FeedbackType) => void;
   onResolve: (incidentId: string, notes: string) => void;
   preIncidentBuffer: number;
+  liveFrame?: LiveFrame | null;
+  clips?: ClipMeta[];
 }
 
-const incidentIcons = {
+const incidentIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   'suspicious-activity': Activity,
   'assault': AlertCircle,
   'vandalism': Wrench,
@@ -35,32 +40,26 @@ const threatColors = {
   critical: 'bg-red-500/10 text-red-500 border-red-500/20',
 };
 
-export function ActiveIncidentView({ incident, onFeedback, onResolve, preIncidentBuffer }: ActiveIncidentViewProps) {
+export function ActiveIncidentView({ incident, onFeedback, onResolve, preIncidentBuffer, liveFrame, clips = [] }: ActiveIncidentViewProps) {
   const [localFeedback, setLocalFeedback] = useState<FeedbackType>(incident.feedback || 'pending');
   const [notes, setNotes] = useState(incident.notes || '');
   const [isLive, setIsLive] = useState(true);
-  const [timelinePosition, setTimelinePosition] = useState(100); // 100 = live, 0 = start
-  const Icon = incidentIcons[incident.type];
-  
-  // Get the AngelBox status
-  const angelBox = mockAngelBoxes.find(box => box.id === incident.boxId);
-  const boxStatus = angelBox?.status || 'offline';
-  
+  const [timelinePosition, setTimelinePosition] = useState(100);
+  const [videoMode, setVideoMode] = useState<VideoMode>('live');
+  const [selectedClipUrl, setSelectedClipUrl] = useState<string | null>(null);
+  const Icon = incidentIcons[incident.type] ?? Activity;
+
+  // Filter clips: prefer those matching this incident, else show all
+  const incidentClips = incident.backendIncidentId != null
+    ? clips.filter(c => c.incidentId === incident.backendIncidentId)
+    : [];
+  const displayClips = incidentClips.length > 0 ? incidentClips : clips;
+
   const statusConfig = {
     online: { icon: Wifi, color: 'text-green-500', bg: 'bg-green-500/10', label: 'Online' },
-    offline: { icon: WifiOff, color: 'text-red-500', bg: 'bg-red-500/10', label: 'Offline' },
-    maintenance: { icon: Wrench, color: 'text-yellow-500', bg: 'bg-yellow-500/10', label: 'Maintenance' },
   };
-  
-  const statusInfo = statusConfig[boxStatus];
+  const statusInfo = statusConfig.online;
   const StatusIcon = statusInfo.icon;
-
-  // Generate notable timestamps (mock data - would come from actual video analysis)
-  const notableTimestamps = [
-    { position: 25, label: 'Motion detected', time: new Date(new Date(incident.timestamp).getTime() - 3 * 60000) },
-    { position: 50, label: 'Subject approached', time: new Date(new Date(incident.timestamp).getTime() - 2 * 60000) },
-    { position: 75, label: 'Incident occurred', time: new Date(incident.timestamp) },
-  ];
 
   const handleTimelineChange = (value: number[]) => {
     const newPosition = value[0];
@@ -72,9 +71,8 @@ export function ActiveIncidentView({ incident, onFeedback, onResolve, preInciden
     if (isLive) {
       return new Date();
     }
-    // Calculate timestamp based on slider position
     const incidentTime = new Date(incident.timestamp).getTime();
-    const startTime = incidentTime - preIncidentBuffer * 60000; // preIncidentBuffer minutes before incident
+    const startTime = incidentTime - preIncidentBuffer * 60000;
     const currentTime = startTime + (timelinePosition / 100) * (preIncidentBuffer * 60000);
     return new Date(currentTime);
   };
@@ -93,82 +91,163 @@ export function ActiveIncidentView({ incident, onFeedback, onResolve, preInciden
       {/* Video Feed */}
       <ResizablePanel defaultSize={50} minSize={30}>
         <div className="flex flex-col h-full pr-3">
-          <div className="mb-3">
-            <h2 className="text-lg font-semibold">Video Feed</h2>
-            <div className="flex items-center gap-2 mt-1">
-              <p className="text-sm text-slate-600 dark:text-slate-400">AngelBox {incident.boxId}</p>
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Video Feed</h2>
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-sm text-slate-600 dark:text-slate-400">AngelBox {incident.boxId}</p>
+              </div>
+            </div>
+            {/* Live / Clips toggle */}
+            <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-1">
+              <Button
+                variant={videoMode === 'live' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setVideoMode('live')}
+                className="flex items-center gap-1.5"
+              >
+                <Wifi className="w-3.5 h-3.5" />
+                Live
+              </Button>
+              <Button
+                variant={videoMode === 'clips' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setVideoMode('clips')}
+                className="flex items-center gap-1.5"
+              >
+                <Film className="w-3.5 h-3.5" />
+                Clips
+                {displayClips.length > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-xs">{displayClips.length}</Badge>
+                )}
+              </Button>
             </div>
           </div>
-          
-          <Card className="flex-1 bg-black relative overflow-hidden flex flex-col">
-            {/* WebRTC Video Feed */}
-            <div className="flex-1 relative">
-              <WebSocketPlayer 
-                streamUrl={`wss://angelbox-${incident.boxId}.stream`}
-                cameraId={incident.boxId}
-              />
-              
-              {/* Video overlay elements */}
-              <div className="absolute top-4 left-4 right-4 flex items-start justify-between z-20 pointer-events-none">
-                {isLive && (
-                  <div className="bg-black/60 backdrop-blur-sm px-3 py-2 rounded-lg">
-                    <div className="flex items-center gap-2 text-white text-sm">
-                      <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                      <span className="font-mono">LIVE</span>
+
+          {videoMode === 'live' ? (
+            <Card className="flex-1 bg-black relative overflow-hidden flex flex-col">
+              {/* WebSocket Video Feed */}
+              <div className="flex-1 relative">
+                <WebSocketPlayer
+                  streamUrl={`wss://angelbox-${incident.boxId}.stream`}
+                  cameraId={incident.boxId}
+                  liveFrame={liveFrame}
+                />
+
+                {/* Video overlay elements */}
+                <div className="absolute top-4 left-4 right-4 flex items-start justify-between z-20 pointer-events-none">
+                  {isLive && (
+                    <div className="bg-black/60 backdrop-blur-sm px-3 py-2 rounded-lg">
+                      <div className="flex items-center gap-2 text-white text-sm">
+                        <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                        <span className="font-mono">LIVE</span>
+                      </div>
+                    </div>
+                  )}
+                  <div className={`bg-black/60 backdrop-blur-sm px-3 py-2 rounded-lg ${!isLive ? 'ml-auto' : ''}`}>
+                    <p className="text-white text-sm font-mono">
+                      {format(getCurrentTimestamp(), 'PPpp')}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Timeline Slider */}
+              <div className="p-4 bg-black/80 backdrop-blur-sm border-t border-white/10">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <PlayCircle className="w-4 h-4 text-white shrink-0" />
+                    <Slider
+                      value={[timelinePosition]}
+                      onValueChange={handleTimelineChange}
+                      max={100}
+                      step={1}
+                      className="flex-1"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleTimelineChange([100])}
+                      className="text-white hover:text-white hover:bg-white/10 shrink-0"
+                    >
+                      Go Live
+                    </Button>
+                  </div>
+
+                  {/* Notable Timestamps */}
+                  <div className="flex items-center justify-between text-xs text-white/60">
+                    <div className="flex flex-col items-center">
+                      <span className="font-mono">{format(new Date(new Date(incident.timestamp).getTime() - preIncidentBuffer * 60000), 'HH:mm:ss')}</span>
+                      <span className="text-[10px] mt-0.5">Start</span>
+                    </div>
+                    <button
+                      onClick={() => handleTimelineChange([75])}
+                      className="flex flex-col items-center hover:text-white/90 transition-colors"
+                    >
+                      <span className="font-mono">{format(new Date(incident.timestamp), 'HH:mm:ss')}</span>
+                      <span className="text-[10px] mt-0.5">Incident Reported</span>
+                    </button>
+                    <div className="flex flex-col items-center">
+                      <span className="font-mono">{isLive ? format(new Date(), 'HH:mm:ss') : 'LIVE'}</span>
+                      <span className="text-[10px] mt-0.5">Current</span>
                     </div>
                   </div>
-                )}
-                <div className={`bg-black/60 backdrop-blur-sm px-3 py-2 rounded-lg ${!isLive ? 'ml-auto' : ''}`}>
-                  <p className="text-white text-sm font-mono">
-                    {format(getCurrentTimestamp(), 'PPpp')}
-                  </p>
                 </div>
               </div>
-            </div>
-
-            {/* Timeline Slider */}
-            <div className="p-4 bg-black/80 backdrop-blur-sm border-t border-white/10">
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <PlayCircle className="w-4 h-4 text-white shrink-0" />
-                  <Slider
-                    value={[timelinePosition]}
-                    onValueChange={handleTimelineChange}
-                    max={100}
-                    step={1}
-                    className="flex-1"
+            </Card>
+          ) : (
+            <Card className="flex-1 bg-black relative overflow-hidden flex flex-col">
+              {/* Selected clip player */}
+              {selectedClipUrl ? (
+                <div className="flex-1 flex items-center justify-center bg-black">
+                  <video
+                    key={selectedClipUrl}
+                    src={getMediaUrl(selectedClipUrl)}
+                    controls
+                    autoPlay
+                    className="max-h-full max-w-full"
                   />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleTimelineChange([100])}
-                    className="text-white hover:text-white hover:bg-white/10 shrink-0"
-                  >
-                    Go Live
-                  </Button>
                 </div>
-                
-                {/* Notable Timestamps */}
-                <div className="flex items-center justify-between text-xs text-white/60">
-                  <div className="flex flex-col items-center">
-                    <span className="font-mono">{format(new Date(new Date(incident.timestamp).getTime() - preIncidentBuffer * 60000), 'HH:mm:ss')}</span>
-                    <span className="text-[10px] mt-0.5">Start</span>
-                  </div>
-                  <button
-                    onClick={() => handleTimelineChange([75])}
-                    className="flex flex-col items-center hover:text-white/90 transition-colors"
-                  >
-                    <span className="font-mono">{format(new Date(incident.timestamp), 'HH:mm:ss')}</span>
-                    <span className="text-[10px] mt-0.5">Incident Reported</span>
-                  </button>
-                  <div className="flex flex-col items-center">
-                    <span className="font-mono">{isLive ? format(new Date(), 'HH:mm:ss') : 'LIVE'}</span>
-                    <span className="text-[10px] mt-0.5">Current</span>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-slate-400">
+                  <div className="text-center">
+                    <Film className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                    <p className="text-sm">
+                      {displayClips.length > 0 ? 'Select a clip to play' : 'No clips available'}
+                    </p>
                   </div>
                 </div>
-              </div>
-            </div>
-          </Card>
+              )}
+
+              {/* Clip list */}
+              {displayClips.length > 0 && (
+                <div className="border-t border-white/10 bg-black/80 backdrop-blur-sm max-h-48 overflow-auto">
+                  {displayClips.map((clip, idx) => (
+                    <button
+                      key={`${clip.url}-${idx}`}
+                      onClick={() => setSelectedClipUrl(clip.url)}
+                      className={`w-full text-left px-4 py-2.5 flex items-center gap-3 hover:bg-white/5 transition-colors ${
+                        selectedClipUrl === clip.url ? 'bg-white/10' : ''
+                      }`}
+                    >
+                      <PlayCircle className="w-4 h-4 text-white/60 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-white truncate">
+                          Clip {idx + 1}
+                          {clip.incidentId != null && (
+                            <span className="text-white/40 ml-2">Incident #{clip.incidentId}</span>
+                          )}
+                        </p>
+                        <p className="text-xs text-white/40 font-mono">
+                          {clip.timestamp ? format(new Date(clip.timestamp), 'PPpp') : 'Unknown time'}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
         </div>
       </ResizablePanel>
 
@@ -191,7 +270,7 @@ export function ActiveIncidentView({ incident, onFeedback, onResolve, preInciden
                 </div>
                 <div>
                   <h3 className="text-xl font-semibold">
-                    {incident.type.split('-').map(word => 
+                    {incident.type.split('-').map(word =>
                       word.charAt(0).toUpperCase() + word.slice(1)
                     ).join(' ')}
                   </h3>
@@ -228,7 +307,7 @@ export function ActiveIncidentView({ incident, onFeedback, onResolve, preInciden
                   <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Confidence Level</p>
                   <div className="flex items-center gap-2 mt-1">
                     <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
-                      <div 
+                      <div
                         className="bg-blue-500 h-full transition-all"
                         style={{ width: `${incident.confidence}%` }}
                       />
@@ -237,6 +316,17 @@ export function ActiveIncidentView({ incident, onFeedback, onResolve, preInciden
                   </div>
                 </div>
               </div>
+
+              {/* Gemini Narration */}
+              {incident.geminiNarration && (
+                <>
+                  <Separator />
+                  <div>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">AI Analysis</p>
+                    <p className="text-sm">{incident.geminiNarration}</p>
+                  </div>
+                </>
+              )}
 
               <Separator />
 
@@ -275,8 +365,8 @@ export function ActiveIncidentView({ incident, onFeedback, onResolve, preInciden
 
                 {localFeedback !== 'pending' && (
                   <div className={`mt-3 p-3 rounded-lg ${
-                    localFeedback === 'confirmed-threat' 
-                      ? 'bg-red-500/10 border border-red-500/20' 
+                    localFeedback === 'confirmed-threat'
+                      ? 'bg-red-500/10 border border-red-500/20'
                       : 'bg-green-500/10 border border-green-500/20'
                   }`}>
                     <div className="flex items-center gap-2">
@@ -286,8 +376,8 @@ export function ActiveIncidentView({ incident, onFeedback, onResolve, preInciden
                         <CheckCircle className="w-4 h-4 text-green-500" />
                       )}
                       <p className="text-sm font-medium">
-                        {localFeedback === 'confirmed-threat' 
-                          ? 'Threat confirmed - Dispatching units' 
+                        {localFeedback === 'confirmed-threat'
+                          ? 'Threat confirmed - Dispatching units'
                           : 'Marked as false alarm'}
                       </p>
                     </div>
