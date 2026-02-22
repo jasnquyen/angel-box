@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleF,
   DirectionsRenderer,
@@ -26,6 +26,8 @@ type EmergencyCallBox = {
   lng: number;
   routeLeg: string;
 };
+type ViewMode = "camera" | "risk" | "safeRoute";
+type CameraMarker = { lat: number; lng: number; id: string };
 
 const LOCATION_ALIASES: Record<string, string> = {
   klaus: "Klaus Advanced Computing Building, Georgia Tech, Atlanta, GA",
@@ -93,7 +95,45 @@ function getCameraPinIcon(zoom: number): string | google.maps.Icon {
   };
 }
 
-export default function Map({ cameras: propCameras }: { cameras?: Array<{ lat: number; lng: number }> }) {
+function buildRiskHeatCircles(cameras: CameraMarker[]) {
+  if (!cameras.length) return [];
+
+  const neighborhoodDistance = 0.012;
+  const densities = cameras.map((camera) => {
+    let nearbyCount = 0;
+    for (const other of cameras) {
+      const latDelta = camera.lat - other.lat;
+      const lngDelta = camera.lng - other.lng;
+      const distance = Math.sqrt(latDelta * latDelta + lngDelta * lngDelta);
+      if (distance <= neighborhoodDistance) nearbyCount += 1;
+    }
+    return nearbyCount;
+  });
+
+  const maxDensity = Math.max(...densities);
+  const minDensity = Math.min(...densities);
+  const densitySpread = Math.max(1, maxDensity - minDensity);
+
+  return cameras.map((camera, index) => {
+    const normalizedSafety = (densities[index] - minDensity) / densitySpread;
+    return {
+      id: `${camera.id}-risk`,
+      lat: camera.lat,
+      lng: camera.lng,
+      safetyScore: normalizedSafety,
+      fillColor: "#e5e7eb",
+      radius: 240,
+    };
+  });
+}
+
+export default function Map({
+  cameras: propCameras,
+  viewMode = "camera",
+}: {
+  cameras?: Array<{ lat: number; lng: number }>;
+  viewMode?: ViewMode;
+}) {
   const mapRef = useRef<google.maps.Map | null>(null);
   const [mapCenter, setMapCenter] = useState(ATLANTA_CENTER);
   const [mapZoom, setMapZoom] = useState(12);
@@ -117,28 +157,39 @@ export default function Map({ cameras: propCameras }: { cameras?: Array<{ lat: n
   ]);
   const [emergencyCallBoxes, setEmergencyCallBoxes] = useState<EmergencyCallBox[]>([]);
 
-  const cameraMarkers = propCameras
+  const cameraMarkers: CameraMarker[] = propCameras
     ? propCameras.map((camera, index) => ({ ...camera, id: `camera-prop-${index + 1}` }))
     : dynamicCameras;
+  const riskHeatCircles = useMemo(() => buildRiskHeatCircles(cameraMarkers), [cameraMarkers]);
 
   const requestRoute = (directionsService: google.maps.DirectionsService, origin: string, destination: string) =>
     new Promise<google.maps.DirectionsResult | null>((resolve) => {
-      directionsService.route(
-        {
-          origin,
-          destination,
-          travelMode: window.google.maps.TravelMode.WALKING,
-          provideRouteAlternatives: true,
-          region: "us",
-        },
-        (result, status) => {
-          if (status === window.google.maps.DirectionsStatus.OK && result) {
-            resolve(result);
-            return;
-          }
-          resolve(null);
-        },
-      );
+      if (!origin.trim() || !destination.trim()) {
+        resolve(null);
+        return;
+      }
+
+      try {
+        directionsService.route(
+          {
+            origin,
+            destination,
+            travelMode: window.google.maps.TravelMode.WALKING,
+            provideRouteAlternatives: true,
+            region: "us",
+          },
+          (result, status) => {
+            if (status === "OK" && result) {
+              resolve(result);
+              return;
+            }
+            resolve(null);
+          },
+        );
+      } catch (routeError) {
+        console.error("Directions request error:", routeError);
+        resolve(null);
+      }
     });
 
   const buildWalkingRoute = async (from: string, to: string) => {
@@ -152,26 +203,34 @@ export default function Map({ cameras: propCameras }: { cameras?: Array<{ lat: n
     const origins = getLocationCandidates(from);
     const destinations = getLocationCandidates(to);
 
-    for (const origin of origins) {
-      for (const destination of destinations) {
-        const result = await requestRoute(directionsService, origin, destination);
-        if (result) {
-          setDirectionsResult(result);
-          setEmergencyCallBoxes(buildEmergencyCallBoxes(result));
-          setSelectedCallBoxId(null);
-          const routeBounds = result.routes[0]?.bounds;
-          if (routeBounds) {
-            mapRef.current?.fitBounds(routeBounds);
+    try {
+      for (const origin of origins) {
+        for (const destination of destinations) {
+          const result = await requestRoute(directionsService, origin, destination);
+          if (result) {
+            setDirectionsResult(result);
+            setEmergencyCallBoxes(buildEmergencyCallBoxes(result));
+            setSelectedCallBoxId(null);
+            const routeBounds = result.routes[0]?.bounds;
+            if (routeBounds) {
+              mapRef.current?.fitBounds(routeBounds);
+            }
+            return;
           }
-          return;
         }
       }
-    }
 
-    setDirectionsResult(null);
-    setEmergencyCallBoxes([]);
-    setSelectedCallBoxId(null);
-    setRouteError(`Could not find a walking route from "${from}" to "${to}".`);
+      setDirectionsResult(null);
+      setEmergencyCallBoxes([]);
+      setSelectedCallBoxId(null);
+      setRouteError(`Could not find a walking route from "${from}" to "${to}".`);
+    } catch (buildError) {
+      console.error("Route builder error:", buildError);
+      setDirectionsResult(null);
+      setEmergencyCallBoxes([]);
+      setSelectedCallBoxId(null);
+      setRouteError("Route lookup failed. Please try a more specific location.");
+    }
   };
 
   useEffect(() => {
@@ -402,13 +461,29 @@ export default function Map({ cameras: propCameras }: { cameras?: Array<{ lat: n
               suppressMarkers: false,
               preserveViewport: true,
               polylineOptions: {
-                strokeColor: "#33c46b",
+                strokeColor: viewMode === "safeRoute" ? "#00d48a" : "#33c46b",
                 strokeOpacity: 0.95,
-                strokeWeight: 6,
+                strokeWeight: viewMode === "safeRoute" ? 8 : 6,
               },
             }}
           />
         )}
+
+        {viewMode === "risk" &&
+          riskHeatCircles.map((circle) => (
+            <CircleF
+              key={circle.id}
+              center={{ lat: circle.lat, lng: circle.lng }}
+              radius={circle.radius}
+              options={{
+                fillColor: circle.fillColor,
+                fillOpacity: 0.45,
+                strokeColor: circle.fillColor,
+                strokeOpacity: 0.6,
+                strokeWeight: 1,
+              }}
+            />
+          ))}
 
         {cameraMarkers.map((camera, i) => (
           <MarkerF
@@ -416,6 +491,7 @@ export default function Map({ cameras: propCameras }: { cameras?: Array<{ lat: n
             position={{ lat: camera.lat, lng: camera.lng }}
             onClick={() => setSelectedMarker(i)}
             icon={getCameraPinIcon(currentZoom)}
+            opacity={viewMode === "safeRoute" ? 0.65 : 1}
           >
             {selectedMarker === i && (
               <InfoWindowF onCloseClick={() => setSelectedMarker(null)}>
@@ -473,6 +549,12 @@ export default function Map({ cameras: propCameras }: { cameras?: Array<{ lat: n
       <div className="absolute left-4 top-4 z-40 rounded-md bg-black/70 px-3 py-2 text-sm text-white shadow-lg">
         Emergency Call Boxes Active: {emergencyCallBoxes.length}
       </div>
+
+      {viewMode === "risk" && (
+        <div className="absolute left-4 top-16 z-40 rounded-md bg-black/70 px-3 py-2 text-xs text-white shadow-lg">
+          Risk Heatmap active
+        </div>
+      )}
     </LoadScript>
   );
 }

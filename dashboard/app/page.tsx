@@ -6,10 +6,12 @@ import dynamic from "next/dynamic";
 import RoutePanel from "./components/RoutePanel";
 
 const MapClientWrapper = dynamic(() => import("./components/Map"), { ssr: false });
+type ViewMode = "camera" | "risk" | "safeRoute";
 
 export default function Home() {
   const [showRoutes, setShowRoutes] = useState(false);
   const [routeQuery, setRouteQuery] = useState("");
+  const [viewMode, setViewMode] = useState<ViewMode>("camera");
 
   useEffect(() => {
     function onOpen(event: Event) {
@@ -31,7 +33,7 @@ export default function Home() {
           {/* Map component */}
           <div className="w-full h-full">
             {/* dynamically imported client component */}
-            <MapClientWrapper />
+            <MapClientWrapper viewMode={viewMode} />
           </div>
         </div>
 
@@ -66,9 +68,27 @@ export default function Home() {
         <div className="absolute top-16 right-8 z-40">
           <div className="bg-white rounded-xl shadow p-3">
             <div className="text-sm font-semibold mb-2">View Mode</div>
-            <button type="button" className="w-full bg-[#1769e0] text-white rounded-md py-2 mb-2">Camera View</button>
-            <button type="button" className="w-full text-left py-2">Risk Heatmap</button>
-            <button type="button" className="w-full text-left py-2">Safe Route Mode</button>
+            <button
+              type="button"
+              onClick={() => setViewMode("camera")}
+              className={`w-full rounded-md py-2 mb-2 ${viewMode === "camera" ? "bg-[#1769e0] text-white" : "text-left"}`}
+            >
+              Camera View
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("risk")}
+              className={`w-full rounded-md py-2 mb-2 ${viewMode === "risk" ? "bg-[#1769e0] text-white" : "text-left"}`}
+            >
+              Risk Heatmap
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("safeRoute")}
+              className={`w-full rounded-md py-2 ${viewMode === "safeRoute" ? "bg-[#1769e0] text-white" : "text-left"}`}
+            >
+              Safe Route Mode
+            </button>
             <div className="flex gap-2 mt-3">
               <button type="button" className="bg-white border rounded p-1">+</button>
               <button type="button" className="bg-white border rounded p-1">-</button>
